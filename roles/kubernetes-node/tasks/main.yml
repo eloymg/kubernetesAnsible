@@ -1,0 +1,63 @@
+---
+- name: Kubernetes-node | Install apt dependencies for ansible apt
+  apt:
+    pkg: "{{ item }}"
+    state: latest
+  with_items:
+    - python-apt
+    - apt-transport-https
+
+- name: Kubernetes-node | Add kubernetes apt key
+  apt_key:
+    url: 'https://packages.cloud.google.com/apt/doc/apt-key.gpg'
+    state: present
+
+- name: Kubernetes-node | Add kubernetes apt repository
+  apt_repository:
+    repo: 'deb http://apt.kubernetes.io/ kubernetes-xenial main'
+    state: present
+
+- name: Kubernetes-node | Make sure kubernetes and its dependencies are installed
+  apt:
+    pkg: "{{ item }}"
+    state: present
+  with_items:
+    - kubelet 
+    - kubeadm 
+    - kubectl 
+    - kubernetes-cni
+
+- name: Kubernetes-node | Enable cgrups memory
+  lineinfile:
+    dest: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX='
+    line: 'GRUB_CMDLINE_LINUX="cgroup_enable=memory"'
+
+- name: Kubernetes-node | Adding dns server
+  lineinfile:
+    dest: /etc/resolv.conf
+    regexp: '^nameserver'
+    line: 'nameserver 8.8.8.8'
+
+- name: Kubernetes-node | Reset grub configuration
+  command: 'update-grub'
+
+- name: Kubernetes-node | Restart machine
+  shell: sleep 2 && shutdown -r now "Ansible updates triggered"
+  async: 1
+  poll: 0
+  ignore_errors: true
+
+- name: Kubernetes-node | waiting for server to come back
+  local_action:
+            wait_for 
+            host={{ inventory_hostname }}
+            state=started
+            port=22
+            delay=15
+            timeout=300
+            connect_timeout=15
+  become: false
+
+- name: Kubernetes-node | Join node
+  shell: "kubeadm join --token={{hostvars['kubernetes-master']['token']}} {{hostvars['kubernetes-master']['ansible_host']}}"
